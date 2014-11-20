@@ -17,9 +17,16 @@ class FileDriver(object):
         self.path = path
         self.data = data
 
+        if not self.data:
+            self.data = open(self.path, 'r').read()
+
+    def name(self):
+        if self.path:
+            return self.path
+        else:
+            return 'piped data'
+
     def parent(self):
-        if self.data:
-            self.filehandler = StringIO.StringIO(data)
         files = self._getlist()
         common = os.path.commonprefix(files)
         if common != '' and len(files) == 1:
@@ -81,8 +88,8 @@ class ZipDriver(FileDriver):
 
     def _getlist(self):
         import zipfile
-        input = self.path or self.filehandler
-        with zipfile.ZipFile(input) as f:
+        self.filehandler = StringIO.StringIO(self.data)
+        with zipfile.ZipFile(self.filehandler) as f:
             return f.namelist()
 
     def _extract_command(self, options):
@@ -91,11 +98,13 @@ class ZipDriver(FileDriver):
 @filedriver
 class GzipDriver(FileDriver):
     extensions = ['tar.gz', 'tgz']
-    mimes = ['application/gzip']
+    mimes = ['application/gzip', 'application/x-gzip']
 
     def _getlist(self):
         import tarfile
-        with tarfile.open(name=self.path, fileobj=self.filehandler, mode="r|gz") as f:
+
+        self.filehandler = StringIO.StringIO(self.data)
+        with tarfile.open(f.path, fileobj=self.filehandler, mode="r|gz") as f:
             return f.getnames()
 
     def _extract_command(self, options):
@@ -108,7 +117,9 @@ class BzipDriver(FileDriver):
 
     def _getlist(self):
         import tarfile
-        with tarfile.open(name=self.path, fileobj=self.filehandler, mode="r|bz2") as f:
+
+        self.filehandler = StringIO.StringIO(self.data)
+        with tarfile.open(fileobj=self.filehandler, mode="r|bz2") as f:
             return f.getnames()
 
     def _extract_command(self, options):
