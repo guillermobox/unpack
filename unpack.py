@@ -1,3 +1,4 @@
+import optparse
 import os
 import subprocess
 import StringIO
@@ -139,15 +140,24 @@ def DriverFromData(data):
             return driver(None, data)
     return None
 
-if len(sys.argv) > 1:
-    for file in sys.argv[1:]:
+usage = 'usage: %prog [options] [<filename> ...]'
+parser = optparse.OptionParser(usage)
+parser.add_option('-v', '--verbose', action='store_true', dest='verbose', help='show a list of the extracted files', default=False)
+parser.add_option('-f', '--force', action='store_true', dest='force', help='force the extraction of the file to the default folder, even overwirting existing files', default=False)
+parser.add_option('-n', '--dryrun', action='store_true', dest='dryrun', help='only show the actions that will be done, don\'t touch the disk', default=False)
+parser.add_option('-t', '--tarbomb', action='store_true', dest='tarbomb', help='extract the files to the working directory, even if it\'s considered a tarbomb', default=False)
+parser.add_option('-o', '--output', metavar='DIR', dest='output', help='extract the files to the given output folder')
+
+(options, args) = parser.parse_args()
+
+if args:
+    for file in args:
         driv = DriverFromPath(file)
         if driv:
             driv.extract({})
 else:
     if sys.stdin.isatty():
-        print 'Usage: unpack [-v|--verbose] [<file>  ...]'
-        print
+        parser.print_help()
         exit(1)
     data = sys.stdin.read()
     driv = DriverFromData(data)
