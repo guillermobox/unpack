@@ -43,7 +43,7 @@ class FileDriver(object):
         return target
 
     def extract(self, options):
-        command = self.extract_command(options)
+        command = self._extract_command(options)
 
         if not self.parent():
             if self.path:
