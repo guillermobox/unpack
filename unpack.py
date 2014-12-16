@@ -7,16 +7,25 @@ import sys
 extmap={}
 mimemap={}
 
-def filedriver(driver):
-    for extension in driver.extensions:
-        extmap['.' + extension] = driver
-    for mime in driver.mimes:
-        mimemap[mime] = driver
+def filedriver(extensions=None, mimes=None):
+    if isinstance(extensions, str):
+        extensions = [extensions]
+
+    if isinstance(mimes, str):
+        mimes = [mimes]
+
+    def inner_filedriver(driver):
+        for extension in extensions or []:
+            extmap['.' + extension] = driver
+        for mime in mimes or []:
+            mimemap[mime] = driver
+    return inner_filedriver
 
 class FileDriver(object):
-    def __init__(self, path, data=None):
-        self.path = path
+    def __init__(self, path, data=None, options=None):
+        self.path = path or 'unpack'
         self.data = data
+        self.options = options or {}
 
         if not self.data:
             self.data = open(self.path, 'r').read()
@@ -28,116 +37,116 @@ class FileDriver(object):
             return 'piped data'
 
     def parent(self):
-        files = self._getlist()
-        common = os.path.commonprefix(files)
-        if common != '' and len(files) == 1:
-            return ''
+        self.get_filelist()
+        common = os.path.commonprefix(map(os.path.dirname, self.filelist))
         return common
 
     def getdirname(self, base, options={}):
+        if base.endswith('/'):
+            base = base[:-1]
         n = 0
         target = base
         while os.path.exists(target):
             n+=1
-            target = '{0}.{1}'.format(base, n)
+            target = '{0}-{1}'.format(base, n)
         return target
 
+    def fix_path(self, path, extractdir, remap=False):
+        "Fix the path provided using the new extract dir."
+        if self.options.tarbomb:
+            return path
+        else:
+            if remap:
+                _, _, path = path.partition('/')
+            return os.path.join(extractdir, path)
+
     def extract(self, options):
-        command = self._extract_command(options)
 
-        if not self.parent():
-            if self.path:
-                extractdir, _ = os.path.splitext(self.path)
-            else:
-                extractdir = 'unpack'
+        remap = False
+        self.open()
+
+        common_folder = self.parent()
+        if common_folder:
+            remap = True
+            extractdir = self.getdirname(common_folder)
         else:
-            extractdir = '.'
+            extractdir, _ = os.path.splitext(self.path)
+            extractdir = self.getdirname(extractdir)
 
-        if self.path:
-            if extractdir != '.':
-                command.append('../'+self.path)
-                extractdir = self.getdirname(extractdir)
-                os.mkdir(extractdir)
-                os.chdir(extractdir)
-                print 'Extracting {0} in {1}'.format(self.path, extractdir)
-                subprocess.call(command)
-                os.chdir('..')
-            else:
-                command.append(self.path)
-                print 'Extracting {0} in {1}'.format(self.path, self.parent())
-                subprocess.call(command)
-        else:
-            command.append('-')
-            if extractdir != '.':
-                extractdir = self.getdirname(extractdir)
-                os.mkdir(extractdir)
-                os.chdir(extractdir)
-                proc = subprocess.Popen(command, stdin=subprocess.PIPE)
-                proc.communicate(self.data)
-                print 'Extracting {0} in {1}'.format('piped input', extractdir)
-                ret = proc.wait()
-            else:
-                proc = subprocess.Popen(command, stdin=subprocess.PIPE)
-                proc.communicate(self.data)
-                print 'Extracting {0} in {1}'.format('piped input', self.parent())
-                ret = proc.wait()
 
-@filedriver
+        print 'Extract dir', extractdir, remap, common_folder
+
+        for file in self.filelist:
+            outfile = self.fix_path(file, extractdir, remap)
+            if self.options.verbose:
+                print 'Extracting',filename,'to',outfile
+            self.extract_file(file, outfile)
+
+        self.close()
+
+@filedriver('zip', 'application/zip')
 class ZipDriver(FileDriver):
-    extensions = ['zip']
-    mimes = ['application/zip']
-
-    def _getlist(self):
+    def open(self):
         import zipfile
         self.filehandler = StringIO.StringIO(self.data)
-        with zipfile.ZipFile(self.filehandler) as f:
-            return f.namelist()
+        self.ziphandler = zipfile.ZipFile(self.filehandler)
 
-    def _extract_command(self, options):
-        return ['unzip', '-qq']
+    def close(self):
+        self.ziphandler.close()
 
-@filedriver
+    def get_filelist(self):
+        self.filelist = self.ziphandler.namelist()
+
+    def extract_file(self, filename, path):
+        dir = os.path.dirname(path)
+        if not os.path.exists(dir):
+            os.makedirs(dir)
+        filedata = self.ziphandler.open(filename, 'r')
+        fileout = open(path, 'w')
+        fileout.write(filedata.read())
+        fileout.close()
+        filedata.close()
+
+@filedriver(['tar.gz', 'tgz'], ['application/gzip', 'application/x-gzip'])
 class GzipDriver(FileDriver):
-    extensions = ['tar.gz', 'tgz']
-    mimes = ['application/gzip', 'application/x-gzip']
+    pass
 
-    def _getlist(self):
-        import tarfile
+#    def _getlist(self):
+#        import tarfile
+#
+#        self.filehandler = StringIO.StringIO(self.data)
+#        with tarfile.open(f.path, fileobj=self.filehandler, mode="r|gz") as f:
+#            return f.getnames()
+#
+#    def _extract_command(self, options):
+#        return ['tar', 'xzf']
 
-        self.filehandler = StringIO.StringIO(self.data)
-        with tarfile.open(f.path, fileobj=self.filehandler, mode="r|gz") as f:
-            return f.getnames()
-
-    def _extract_command(self, options):
-        return ['tar', 'xzf']
-
-@filedriver
+@filedriver(['tar.bz', 'tbz', 'tar.bz2'], ['application/bzip'])
 class BzipDriver(FileDriver):
-    extensions = ['tar.bz', 'tbz', 'tar.bz2']
-    mimes = ['application/bzip']
+    pass
 
-    def _getlist(self):
-        import tarfile
+#    def _getlist(self):
+#        import tarfile
+#
+#        self.filehandler = StringIO.StringIO(self.data)
+#        with tarfile.open(fileobj=self.filehandler, mode="r|bz2") as f:
+#            return f.getnames()
+#
+#    def _extract_command(self, options):
+#        return ['tar', 'xjf']
 
-        self.filehandler = StringIO.StringIO(self.data)
-        with tarfile.open(fileobj=self.filehandler, mode="r|bz2") as f:
-            return f.getnames()
-
-    def _extract_command(self, options):
-        return ['tar', 'xjf']
-
-def DriverFromPath(path):
+def DriverFromPath(path, options):
     for extension, driver in extmap.iteritems():
         if path.endswith(extension):
-            return driver(path)
+            return driver(path, None, options)
     return None
 
-def DriverFromData(data):
+def DriverFromData(data, options):
     fileproc = subprocess.Popen(['file', '--mime', '--brief', '-'], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     mimetype, err = fileproc.communicate(data)
     for mime, driver in mimemap.iteritems():
         if mimetype.startswith(mime):
-            return driver(None, data)
+            return driver(None, data, options)
     return None
 
 usage = 'usage: %prog [options] [<filename> ...]'
@@ -152,7 +161,7 @@ parser.add_option('-o', '--output', metavar='DIR', dest='output', help='extract 
 
 if args:
     for file in args:
-        driv = DriverFromPath(file)
+        driv = DriverFromPath(file, options)
         if driv:
             driv.extract({})
 else:
