@@ -1,4 +1,4 @@
-import optparse
+import argparse
 import os
 import subprocess
 import StringIO
@@ -7,6 +7,9 @@ import sys
 extmap={}
 mimemap={}
 
+# Decorator for file drivers, assign the class to the required extensions or
+# mimetypes, into the global dictionaries extmap and mimemap. Both extensions
+# and mimes can be a string, or a list of strings.
 def filedriver(extensions=None, mimes=None):
     if isinstance(extensions, str):
         extensions = [extensions]
@@ -73,13 +76,10 @@ class FileDriver(object):
             extractdir, _ = os.path.splitext(self.path)
             extractdir = self.getdirname(extractdir)
 
-
-        print 'Extract dir', extractdir, remap, common_folder
-
         for file in self.filelist:
             outfile = self.fix_path(file, extractdir, remap)
             if self.options.verbose:
-                print 'Extracting',filename,'to',outfile
+                print outfile
             self.extract_file(file, outfile)
 
         self.close()
@@ -149,25 +149,28 @@ def DriverFromData(data, options):
             return driver(None, data, options)
     return None
 
-usage = 'usage: %prog [options] [<filename> ...]'
-parser = optparse.OptionParser(usage)
-parser.add_option('-v', '--verbose', action='store_true', dest='verbose', help='show a list of the extracted files', default=False)
-parser.add_option('-f', '--force', action='store_true', dest='force', help='force the extraction of the file to the default folder, even overwirting existing files', default=False)
-parser.add_option('-n', '--dryrun', action='store_true', dest='dryrun', help='only show the actions that will be done, don\'t touch the disk', default=False)
-parser.add_option('-t', '--tarbomb', action='store_true', dest='tarbomb', help='extract the files to the working directory, even if it\'s considered a tarbomb', default=False)
-parser.add_option('-o', '--output', metavar='DIR', dest='output', help='extract the files to the given output folder')
+parser = argparse.ArgumentParser()
+parser.add_argument('-v', '--verbose', action='store_true', dest='verbose', help='show a list of the extracted files', default=False)
+parser.add_argument('-f', '--force', action='store_true', dest='force', help='force the extraction of the file to the default folder, even overwirting existing files', default=False)
+parser.add_argument('-n', '--dryrun', action='store_true', dest='dryrun', help='only show the actions that will be done, don\'t touch the disk', default=False)
+parser.add_argument('-t', '--tarbomb', action='store_true', dest='tarbomb', help='extract the files to the working directory, even if it\'s considered a tarbomb', default=False)
+parser.add_argument('-o', '--output', metavar='DIR', dest='output', help='extract the files to the given output folder')
+parser.add_argument('-l', '--list', action='store_true', dest='list', help='list the contents of the archive', default=False)
+parser.add_argument('filepath', nargs='*')
 
-(options, args) = parser.parse_args()
+environment = parser.parse_args()
 
-if args:
-    for file in args:
-        driv = DriverFromPath(file, options)
-        if driv:
-            driv.extract({})
-else:
-    if sys.stdin.isatty():
-        parser.print_help()
-        exit(1)
+if not environment.filepath and sys.stdin.isatty():
+    parser.print_help()
+    exit(1)
+
+for filepath in environment.filepath:
+    print filepath
+    driv = DriverFromPath(filepath, environment)
+    if driv:
+        driv.extract({})
+
+if not environment.filepath:
     data = sys.stdin.read()
     driv = DriverFromData(data)
     if driv:
