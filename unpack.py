@@ -8,7 +8,7 @@ extmap={}
 mimemap={}
 
 # Get the mime type of a certain file data string
-def getmimetype(data):
+def get_mimetype(data):
     from subprocess import Popen, PIPE
     commands = 'file --mime --brief -'.split()
     fileproc = Popen(commands, stdin=PIPE, stdout=PIPE)
@@ -45,21 +45,25 @@ class FileDriver(object):
             return 'piped data'
 
     def parent(self):
-        common = os.path.commonprefix(map(os.path.dirname, self.filelist))
+        dirnames = map(os.path.dirname, self.filelist)
+        common = os.path.commonprefix(dirnames)
         return common
 
-    def getdirname(self, base):
+    def get_unique_dirname(self, base):
         if base.endswith('/'):
             base = base[:-1]
         n = 0
         target = base
+        if self.env.force:
+            return target
         while os.path.exists(target):
             n+=1
             target = '{0}-{1}'.format(base, n)
         return target
 
     def fix_path(self, path, extractdir, remap=False):
-        "Fix the path provided using the new extract dir."
+        # Fix the path provided using the new extract dir. Remap means that the
+        # base directory of the file to be extracted will be renamed.
         if self.env.tarbomb:
             return path
         else:
@@ -67,28 +71,42 @@ class FileDriver(object):
                 _, _, path = path.partition('/')
             return os.path.join(extractdir, path)
 
-    def extract(self):
+    def get_extractdir(self):
+        common_folder = self.parent()
+        if common_folder:
+            remap = True
+            extractdir = self.get_unique_dirname(common_folder)
+        else:
+            extractdir, _ = os.path.splitext(self.path)
+            extractdir = self.get_unique_dirname(extractdir)
+        return extractdir, remap
 
+    def process(self):
         remap = False
         self.open()
         self.get_filelist()
 
-        common_folder = self.parent()
-        if common_folder:
-            remap = True
-            extractdir = self.getdirname(common_folder)
+        if self.env.list:
+            self.command_list()
         else:
-            extractdir, _ = os.path.splitext(self.path)
-            extractdir = self.getdirname(extractdir)
+            self.command_extract()
+
+    def command_extract(self):
+        extractdir, remap = self.get_extractdir()
 
         for file in self.filelist:
-             outfile = self.fix_path(file, extractdir, remap)
-             if self.env.verbose:
-                 print outfile
-             outfile = file
-             self.extract_file(file, outfile)
+            outfile = self.fix_path(file, extractdir, remap)
+            if self.env.verbose:
+                print outfile
+            if not self.env.dryrun:
+                self.extract_file(file, outfile)
 
         self.close()
+
+    def command_list(self):
+        for file in self.filelist:
+            print file
+
 
 @filedriver('zip', 'application/zip')
 class ZipDriver(FileDriver):
@@ -152,7 +170,7 @@ def DriverFromPath(path, env):
     return None
 
 def DriverFromData(data, env):
-    mimetype = getmimetype(data);
+    mimetype = get_mimetype(data);
     for mime, driver in mimemap.iteritems():
         if mimetype.startswith(mime):
             return driver(data, env)
@@ -175,16 +193,15 @@ def main():
         exit(1)
 
     for filepath in environment.filepath:
-        print filepath
         driv = DriverFromPath(filepath, environment)
         if driv:
-            driv.extract()
+            driv.process()
 
     if not environment.filepath:
         data = sys.stdin.read()
         driv = DriverFromData(data, environment)
         if driv:
-            driv.extract()
+            driv.process()
 
 if __name__ == '__main__':
     main()
