@@ -1,11 +1,18 @@
 import argparse
 import os
-import subprocess
 import StringIO
 import sys
 
 extmap={}
 mimemap={}
+
+# Get the mime type of a certain file data string
+def getmimetype(data):
+    from subprocess import Popen, PIPE
+    commands = 'file --mime --brief -'.split()
+    fileproc = Popen(commands, stdin=PIPE, stdout=PIPE)
+    mimetype, err = fileproc.communicate(data)
+    return mimetype
 
 # Decorator for file drivers, assign the class to the required extensions or
 # mimetypes, into the global dictionaries extmap and mimemap. Both extensions
@@ -25,13 +32,10 @@ def filedriver(extensions=None, mimes=None):
     return inner_filedriver
 
 class FileDriver(object):
-    def __init__(self, path, data=None, options=None):
-        self.path = path or 'unpack'
+    def __init__(self, data, env, path='unpack'):
+        self.path = path
         self.data = data
-        self.options = options or {}
-
-        if not self.data:
-            self.data = open(self.path, 'r').read()
+        self.env = env
 
     def name(self):
         if self.path:
@@ -40,11 +44,10 @@ class FileDriver(object):
             return 'piped data'
 
     def parent(self):
-        self.get_filelist()
         common = os.path.commonprefix(map(os.path.dirname, self.filelist))
         return common
 
-    def getdirname(self, base, options={}):
+    def getdirname(self, base):
         if base.endswith('/'):
             base = base[:-1]
         n = 0
@@ -56,17 +59,18 @@ class FileDriver(object):
 
     def fix_path(self, path, extractdir, remap=False):
         "Fix the path provided using the new extract dir."
-        if self.options.tarbomb:
+        if self.env.tarbomb:
             return path
         else:
             if remap:
                 _, _, path = path.partition('/')
             return os.path.join(extractdir, path)
 
-    def extract(self, options):
+    def extract(self):
 
         remap = False
         self.open()
+        self.get_filelist()
 
         common_folder = self.parent()
         if common_folder:
@@ -77,10 +81,11 @@ class FileDriver(object):
             extractdir = self.getdirname(extractdir)
 
         for file in self.filelist:
-            outfile = self.fix_path(file, extractdir, remap)
-            if self.options.verbose:
-                print outfile
-            self.extract_file(file, outfile)
+             outfile = self.fix_path(file, extractdir, remap)
+             if self.env.verbose:
+                 print outfile
+             outfile = file
+             self.extract_file(file, outfile)
 
         self.close()
 
@@ -98,9 +103,12 @@ class ZipDriver(FileDriver):
         self.filelist = self.ziphandler.namelist()
 
     def extract_file(self, filename, path):
+        if filename.endswith('/'):
+            return
         dir = os.path.dirname(path)
         if not os.path.exists(dir):
             os.makedirs(dir)
+        info = self.ziphandler.getinfo(filename)
         filedata = self.ziphandler.open(filename, 'r')
         fileout = open(path, 'w')
         fileout.write(filedata.read())
@@ -135,44 +143,48 @@ class BzipDriver(FileDriver):
 #    def _extract_command(self, options):
 #        return ['tar', 'xjf']
 
-def DriverFromPath(path, options):
+def DriverFromPath(path, env):
+    data = open(path, 'r').read()
     for extension, driver in extmap.iteritems():
         if path.endswith(extension):
-            return driver(path, None, options)
+            return driver(data, env, path=path)
     return None
 
-def DriverFromData(data, options):
-    fileproc = subprocess.Popen(['file', '--mime', '--brief', '-'], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-    mimetype, err = fileproc.communicate(data)
+def DriverFromData(data, env):
+    mimetype = getmimetype(data);
     for mime, driver in mimemap.iteritems():
         if mimetype.startswith(mime):
-            return driver(None, data, options)
+            return driver(data, env)
     return None
 
-parser = argparse.ArgumentParser()
-parser.add_argument('-v', '--verbose', action='store_true', dest='verbose', help='show a list of the extracted files', default=False)
-parser.add_argument('-f', '--force', action='store_true', dest='force', help='force the extraction of the file to the default folder, even overwirting existing files', default=False)
-parser.add_argument('-n', '--dryrun', action='store_true', dest='dryrun', help='only show the actions that will be done, don\'t touch the disk', default=False)
-parser.add_argument('-t', '--tarbomb', action='store_true', dest='tarbomb', help='extract the files to the working directory, even if it\'s considered a tarbomb', default=False)
-parser.add_argument('-o', '--output', metavar='DIR', dest='output', help='extract the files to the given output folder')
-parser.add_argument('-l', '--list', action='store_true', dest='list', help='list the contents of the archive', default=False)
-parser.add_argument('filepath', nargs='*')
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-v', '--verbose', action='store_true', dest='verbose', help='show a list of the extracted files', default=False)
+    parser.add_argument('-f', '--force', action='store_true', dest='force', help='force the extraction of the file to the default folder, even overwirting existing files', default=False)
+    parser.add_argument('-n', '--dryrun', action='store_true', dest='dryrun', help='only show the actions that will be done, don\'t touch the disk', default=False)
+    parser.add_argument('-t', '--tarbomb', action='store_true', dest='tarbomb', help='extract the files to the working directory, even if it\'s considered a tarbomb', default=False)
+    parser.add_argument('-o', '--output', metavar='DIR', dest='output', help='extract the files to the given output folder')
+    parser.add_argument('-l', '--list', action='store_true', dest='list', help='list the contents of the archive', default=False)
+    parser.add_argument('filepath', nargs='*', help='compressed file to work with')
 
-environment = parser.parse_args()
+    environment = parser.parse_args()
 
-if not environment.filepath and sys.stdin.isatty():
-    parser.print_help()
-    exit(1)
+    if not environment.filepath and sys.stdin.isatty():
+        parser.print_help()
+        exit(1)
 
-for filepath in environment.filepath:
-    print filepath
-    driv = DriverFromPath(filepath, environment)
-    if driv:
-        driv.extract({})
+    for filepath in environment.filepath:
+        print filepath
+        driv = DriverFromPath(filepath, environment)
+        if driv:
+            driv.extract()
 
-if not environment.filepath:
-    data = sys.stdin.read()
-    driv = DriverFromData(data)
-    if driv:
-        driv.extract({})
+    if not environment.filepath:
+        data = sys.stdin.read()
+        driv = DriverFromData(data, environment)
+        if driv:
+            driv.extract()
+
+if __name__ == '__main__':
+    main()
 
