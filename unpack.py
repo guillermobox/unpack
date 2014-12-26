@@ -7,18 +7,18 @@ import sys
 extmap={}
 mimemap={}
 
-# Get the mime type of a certain file data string
 def get_mimetype(data):
+    ''' Get the mimetype from the data contents of a file.'''
     from subprocess import Popen, PIPE
     commands = 'file --mime --brief -'.split()
     fileproc = Popen(commands, stdin=PIPE, stdout=PIPE)
     mimetype, err = fileproc.communicate(data)
     return mimetype
 
-# Decorator for file drivers, assign the class to the required extensions or
-# mimetypes, into the global dictionaries extmap and mimemap. Both extensions
-# and mimes can be a string, or a list of strings.
 def filedriver(extensions=None, mimes=None):
+    ''' Decorator for file drivers, assign the class to the required extensions
+    or mimetypes, into the global dictionaries extmap and mimemap. Both
+    extensions and mimes can be a string, or a list of strings.'''
     if isinstance(extensions, str):
         extensions = [extensions]
 
@@ -38,18 +38,15 @@ class FileDriver(object):
         self.data = data
         self.env = env
 
-    def name(self):
-        if self.path:
-            return self.path
-        else:
-            return 'piped data'
-
     def parent(self):
+        '''Calculate the common parent name of the files in the archive.'''
         dirnames = map(os.path.dirname, self.filelist)
         common = os.path.commonprefix(dirnames)
         return common
 
     def get_unique_dirname(self, base):
+        '''From a given directory name, generate a unique one if that is
+        already occupied.'''
         if base.endswith('/'):
             base = base[:-1]
         n = 0
@@ -62,8 +59,8 @@ class FileDriver(object):
         return target
 
     def fix_path(self, path, extractdir, remap=False):
-        # Fix the path provided using the new extract dir. Remap means that the
-        # base directory of the file to be extracted will be renamed.
+        '''Fix the path provided using the new extract dir. Remap means that the
+        base directory of the file to be extracted will be renamed.'''
         if self.env.tarbomb:
             return path
         else:
@@ -72,11 +69,14 @@ class FileDriver(object):
             return os.path.join(extractdir, path)
 
     def get_extractdir(self):
+        '''Get the extract dir for the files in the archive. If there is
+        neccesary a remap of the basename of the files, is applied here.'''
         common_folder = self.parent()
         if common_folder:
             remap = True
             extractdir = self.get_unique_dirname(common_folder)
         else:
+            remap = False
             extractdir, _ = os.path.splitext(self.path)
             extractdir = self.get_unique_dirname(extractdir)
         return extractdir, remap
@@ -107,7 +107,6 @@ class FileDriver(object):
         for file in self.filelist:
             print file
 
-
 @filedriver('zip', 'application/zip')
 class ZipDriver(FileDriver):
     def open(self):
@@ -134,35 +133,47 @@ class ZipDriver(FileDriver):
         fileout.close()
         filedata.close()
 
-@filedriver(['tar.gz', 'tgz'], ['application/gzip', 'application/x-gzip'])
-class GzipDriver(FileDriver):
-    pass
+class BaseTarDriver(FileDriver):
+    def close(self):
+        self.tarhandler.close()
 
-#    def _getlist(self):
-#        import tarfile
-#
-#        self.filehandler = StringIO.StringIO(self.data)
-#        with tarfile.open(f.path, fileobj=self.filehandler, mode="r|gz") as f:
-#            return f.getnames()
-#
-#    def _extract_command(self, options):
-#        return ['tar', 'xzf']
+    def get_filelist(self):
+        self.filelist = self.tarhandler.getnames()
+
+    def _getdata(self, filename):
+        filedata = self.tarhandler.extractfile(filename)
+        return filedata
+
+    def extract_file(self, filename, path):
+        if filename.endswith('/'):
+            return
+        dir = os.path.dirname(path)
+        if not os.path.exists(dir):
+            os.makedirs(dir)
+        filedata = self._getdata(filename)
+        if not filedata:
+            return
+        fileout = open(path, 'w')
+        fileout.write(filedata.read())
+        fileout.close()
+        filedata.close()
+
+@filedriver(['tar.gz', 'tgz'], ['application/gzip', 'application/x-gzip'])
+class GzipDriver(BaseTarDriver):
+    def open(self):
+        import tarfile
+        self.filehandler = StringIO.StringIO(self.data)
+        self.tarhandler = tarfile.open(fileobj=self.filehandler, mode='r:*')
 
 @filedriver(['tar.bz', 'tbz', 'tar.bz2'], ['application/bzip'])
-class BzipDriver(FileDriver):
-    pass
-
-#    def _getlist(self):
-#        import tarfile
-#
-#        self.filehandler = StringIO.StringIO(self.data)
-#        with tarfile.open(fileobj=self.filehandler, mode="r|bz2") as f:
-#            return f.getnames()
-#
-#    def _extract_command(self, options):
-#        return ['tar', 'xjf']
+class BzipDriver(BaseTarDriver):
+    def open(self):
+        import tarfile
+        self.filehandler = StringIO.StringIO(self.data)
+        self.tarhandler = tarfile.open(fileobj=self.filehandler, mode='r:*')
 
 def DriverFromPath(path, env):
+    '''Factory, get a Driver from the path of a file.'''
     data = open(path, 'r').read()
     for extension, driver in extmap.iteritems():
         if path.endswith(extension):
@@ -170,6 +181,7 @@ def DriverFromPath(path, env):
     return None
 
 def DriverFromData(data, env):
+    '''Factory, get a Driver from the data of a file, no path known.'''
     mimetype = get_mimetype(data);
     for mime, driver in mimemap.iteritems():
         if mimetype.startswith(mime):
