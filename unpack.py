@@ -38,74 +38,80 @@ class FileDriver(object):
         self.data = data
         self.env = env
 
-    def parent(self):
-        '''Calculate the common parent name of the files in the archive.'''
-        dirnames = map(os.path.dirname, self.filelist)
+    @staticmethod
+    def common_parent(filelist):
+        '''Calculate the common parent name of the files in the archive. If this
+        function returns a folder, means that the file is not a tarbomb.'''
+        dirnames = map(os.path.dirname, filelist)
         common = os.path.commonprefix(dirnames)
         return common
 
-    def get_unique_dirname(self, base):
+    @staticmethod
+    def unique_dirname(base):
         '''From a given directory name, generate a unique one if that is
         already occupied.'''
         if base.endswith('/'):
             base = base[:-1]
         n = 0
         target = base
-        if self.env.force:
-            return target
         while os.path.exists(target):
             n+=1
             target = '{0}-{1}'.format(base, n)
         return target
 
-    def fix_path(self, path, extractdir, remap=False):
-        '''Fix the path provided using the new extract dir. Remap means that the
-        base directory of the file to be extracted will be renamed.'''
-        if self.env.tarbomb:
-            return path
-        else:
-            if remap:
-                _, _, path = path.partition('/')
-            return os.path.join(extractdir, path)
+    def calculate_mappings(self):
+        '''Calculate the path to extract each file, return as a list of pairs.
+        This takes into consideration any possible path remaping or environment
+        flag.'''
 
-    def get_extractdir(self):
-        '''Get the extract dir for the files in the archive. If there is
-        neccesary a remap of the basename of the files, is applied here.'''
-        common_folder = self.parent()
-        if common_folder:
-            remap = True
-            extractdir = self.get_unique_dirname(common_folder)
+        filelist = self.filelist()
+        self.filemaps = []
+
+        parent = self.common_parent(filelist)
+        if parent:
+            extractdir = parent
         else:
-            remap = False
             extractdir, _ = os.path.splitext(self.path)
-            extractdir = self.get_unique_dirname(extractdir)
-        return extractdir, remap
+
+        extractdir = self.unique_dirname(extractdir)
+
+        for path in filelist:
+            if parent:
+                _, _, tmppath = path.partition(parent)
+                if tmppath.startswith('/'):
+                    tmppath = tmppath[1:]
+            else:
+                tmppath = path
+            outpath = os.path.join(extractdir, tmppath)
+            if self.env.verbose:
+                print outpath
+            if not self.env.dryrun:
+                self.filemaps.append((path, outpath))
 
     def process(self):
-        remap = False
+        '''Run the command selected by the user in the environment flags.'''
         self.open()
-        self.get_filelist()
+        self.calculate_mappings()
 
         if self.env.list:
             self.command_list()
         else:
             self.command_extract()
 
-    def command_extract(self):
-        extractdir, remap = self.get_extractdir()
-
-        for file in self.filelist:
-            outfile = self.fix_path(file, extractdir, remap)
-            if self.env.verbose:
-                print outfile
-            if not self.env.dryrun:
-                self.extract_file(file, outfile)
-
         self.close()
 
+    def command_extract(self):
+        '''Extract the contents of the file.'''
+        for path, epath in self.filemaps:
+            if self.env.verbose:
+                print epath
+            if not self.env.dryrun:
+                self.extract(path, epath)
+
     def command_list(self):
-        for file in self.filelist:
-            print file
+        '''List the contents of the file.'''
+        for path, epath in self.filemaps:
+            print path
 
 @filedriver('zip', 'application/zip')
 class ZipDriver(FileDriver):
@@ -117,10 +123,10 @@ class ZipDriver(FileDriver):
     def close(self):
         self.ziphandler.close()
 
-    def get_filelist(self):
-        self.filelist = self.ziphandler.namelist()
+    def filelist(self):
+        return self.ziphandler.namelist()
 
-    def extract_file(self, filename, path):
+    def extract(self, filename, path):
         if filename.endswith('/'):
             return
         dir = os.path.dirname(path)
@@ -137,14 +143,14 @@ class BaseTarDriver(FileDriver):
     def close(self):
         self.tarhandler.close()
 
-    def get_filelist(self):
-        self.filelist = self.tarhandler.getnames()
+    def filelist(self):
+        return self.tarhandler.getnames()
 
     def _getdata(self, filename):
         filedata = self.tarhandler.extractfile(filename)
         return filedata
 
-    def extract_file(self, filename, path):
+    def extract(self, filename, path):
         if filename.endswith('/'):
             return
         dir = os.path.dirname(path)
