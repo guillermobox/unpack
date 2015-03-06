@@ -97,8 +97,7 @@ class FileDriver(object):
             else:
                 tmppath = path
             outpath = os.path.join(extractdir, tmppath)
-            if not self.env.dryrun:
-                self.filemaps.append((path, outpath))
+            self.filemaps.append((path, outpath))
 
     def process(self):
         '''Run the command selected by the user in the environment flags.'''
