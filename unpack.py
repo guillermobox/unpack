@@ -180,11 +180,16 @@ class BzipDriver(BaseTarDriver):
 
 def DriverFromPath(path, env):
     '''Factory, get a Driver from the path of a file.'''
-    data = open(path, 'r').read()
-    for extension, driver in extmap.iteritems():
-        if path.endswith(extension):
-            return driver(data, env, path=path)
-    return None
+    try:
+        with open(path, 'r') as f:
+            data = f.read()
+            for extension, driver in extmap.iteritems():
+                if path.endswith(extension):
+                    return driver(data, env, path=path)
+            return None
+    except IOError as e:
+        print 'Input error: ' + str(e)
+        exit(1)
 
 def DriverFromData(data, env):
     '''Factory, get a Driver from the data of a file, no path known.'''
