@@ -33,10 +33,24 @@ def filedriver(extensions=None, mimes=None):
     return inner_filedriver
 
 class FileDriver(object):
+    ''' Main class to derive the format-specific classes. In the derivation,
+    implement the abstract methods: open, close, filelist and extract.'''
     def __init__(self, data, env, path='unpack'):
         self.path = path
         self.data = data
         self.env = env
+
+    def open(self):
+        raise NotImplementedError()
+
+    def close(self):
+        raise NotImplementedError()
+
+    def filelist(self):
+        raise NotImplementedError()
+
+    def extract(self, filename, path):
+        raise NotImplementedError()
 
     @staticmethod
     def common_parent(filelist):
