@@ -83,8 +83,6 @@ class FileDriver(object):
             else:
                 tmppath = path
             outpath = os.path.join(extractdir, tmppath)
-            if self.env.verbose:
-                print outpath
             if not self.env.dryrun:
                 self.filemaps.append((path, outpath))
 
