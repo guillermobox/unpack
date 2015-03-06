@@ -188,7 +188,7 @@ def DriverFromPath(path, env):
                     return driver(data, env, path=path)
             return None
     except IOError as e:
-        print 'Input error: ' + str(e)
+        print 'Input error when reading {0}: {1}'.format(path, e.strerror)
         exit(1)
 
 def DriverFromData(data, env):
@@ -219,6 +219,9 @@ def main():
         driv = DriverFromPath(filepath, environment)
         if driv:
             driv.process()
+        else:
+            print 'Unrecognized file format of {0}'.format(filepath)
+            exit(1)
 
     if not environment.filepath:
         data = sys.stdin.read()
