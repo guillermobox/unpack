@@ -85,9 +85,12 @@ class FileDriver(object):
         if parent:
             extractdir = parent
         else:
-            extractdir, _ = os.path.splitext(self.path)
+            if self.env.tarbomb:
+                extractdir = '.'
+            else:
+                extractdir, _ = os.path.splitext(self.path)
 
-        if not self.env.force:
+        if not self.env.force and not self.env.tarbomb:
             extractdir = self.unique_dirname(extractdir)
 
         for path in filelist:
