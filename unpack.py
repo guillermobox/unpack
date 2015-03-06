@@ -87,7 +87,8 @@ class FileDriver(object):
         else:
             extractdir, _ = os.path.splitext(self.path)
 
-        extractdir = self.unique_dirname(extractdir)
+        if not self.env.force:
+            extractdir = self.unique_dirname(extractdir)
 
         for path in filelist:
             if parent:
