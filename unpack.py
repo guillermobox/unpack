@@ -56,8 +56,7 @@ class FileDriver(object):
     def common_parent(filelist):
         '''Calculate the common parent name of the files in the archive. If this
         function returns a folder, means that the file is not a tarbomb.'''
-        dirnames = map(os.path.dirname, filelist)
-        common = os.path.commonprefix(dirnames)
+        common = os.path.commonprefix(filelist)
         return common
 
     @staticmethod
