@@ -30,6 +30,7 @@ def filedriver(extensions=None, mimes=None):
             extmap['.' + extension] = driver
         for mime in mimes or []:
             mimemap[mime] = driver
+        return driver
     return inner_filedriver
 
 class FileDriver(object):
@@ -153,7 +154,13 @@ class ZipDriver(FileDriver):
         fileout.close()
         filedata.close()
 
+@filedriver(['tar'], ['application/x-tar'])
 class BaseTarDriver(FileDriver):
+    def open(self):
+        import tarfile
+        self.filehandler = StringIO.StringIO(self.data)
+        self.tarhandler = tarfile.open(fileobj=self.filehandler, mode='r:*')
+
     def close(self):
         self.tarhandler.close()
 
@@ -180,17 +187,11 @@ class BaseTarDriver(FileDriver):
 
 @filedriver(['tar.gz', 'tgz'], ['application/gzip', 'application/x-gzip'])
 class GzipDriver(BaseTarDriver):
-    def open(self):
-        import tarfile
-        self.filehandler = StringIO.StringIO(self.data)
-        self.tarhandler = tarfile.open(fileobj=self.filehandler, mode='r:*')
+    pass
 
 @filedriver(['tar.bz', 'tbz', 'tar.bz2'], ['application/bzip'])
 class BzipDriver(BaseTarDriver):
-    def open(self):
-        import tarfile
-        self.filehandler = StringIO.StringIO(self.data)
-        self.tarhandler = tarfile.open(fileobj=self.filehandler, mode='r:*')
+    pass
 
 def DriverFromPath(path, env):
     '''Factory, get a Driver from the path of a file.'''
